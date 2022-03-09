@@ -1,0 +1,70 @@
+server {
+    listen 80 default_server;
+    server_name staging.tofurky.com;
+    include conf.d/redux_monitor.frag;
+
+    listen 443 ssl http2;
+    ssl_certificate /etc/letsencrypt/live/staging.tofurky.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/staging.tofurky.com/privkey.pem;
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    resolver 8.8.4.4 8.8.8.8 valid=300s;
+    resolver_timeout 10s;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+    ssl_prefer_server_ciphers On;
+    ssl_ciphers ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:ECDH+3DES:DH+3DES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:!DSS;
+
+    access_log /var/log/nginx/staging.tofurky.com-access.log  main;
+    error_log /var/log/nginx/staging.tofurky.com-error.log error;
+
+    client_max_body_size 20m;
+
+    root /home/deploy/public;
+    add_header  'Access-Control-Allow-Origin' '*';
+    location / {
+        index index.php index.html index.htm;
+        try_files $uri $uri/ /index.php?$args;
+    }
+    
+    location ~ /.well-known {
+    allow all;
+    }
+     # Media: images, icons, video, audio, HTC
+          location ~* \.(?:jpg|jpeg|gif|png|ico|cur|gz|svg|svgz|mp4|ogg|ogv|webm|htc)$ {
+            expires 30d;
+            access_log off;
+            add_header Cache-Control "public";
+          }
+
+           location ~ \.(ttf|ttc|otf|eot|woff|woff2|font.css|css|js)$ {
+             add_header Access-Control-Allow-Origin "*";
+             expires 30d;
+             access_log off;
+             add_header Cache-Control "public";
+           }
+    # redirect server error pages to the static page /50x.html
+    #
+    error_page   500 502 503 504  /50x.html;
+    location = /50x.html {
+        root   /usr/share/nginx/html;
+    }
+
+    # pass the PHP scripts to FastCGI server listening on 127.0.0.1:9000
+    #
+    location ~ \.php$ {
+         fastcgi_pass   127.0.0.1:9000;
+         fastcgi_index  index.php;
+         fastcgi_param  SCRIPT_FILENAME  $document_root$fastcgi_script_name;
+         include        fastcgi_params;
+    }
+
+    # deny access to .htaccess files, if Apache's document root
+    # concurs with nginx's one
+    #
+    location ~ /\.ht {
+        deny  all;
+    }
+}
+

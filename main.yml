@@ -1,0 +1,200 @@
+---
+- hosts: 127.0.0.1
+  connection: local
+  user: root
+  vars:
+    domain_name1: staging.moochofoods.com
+    domain_name2: staging.tofurky.com
+    moocho_database: moocho_wp
+    tofurky_database: tofurky_wp_main
+    moocho_user: moocho_user
+    tofurky_user: tofurky_user
+  
+  vars_prompt:
+
+    - name:  mysql_root_password
+      prompt: "enter mysql_root_password"
+
+    - name: moocho_password
+      prompt: " enter password for moocho_user"
+
+    - name: tofurky_password
+      prompt: "enter password for tofurky_user"
+
+  tasks:
+  - include_vars: users.yml
+
+  - name: Add users | create users, shell, home dirs
+    user: name={{ item.username }} shell=/bin/bash createhome=yes
+    with_items: '{{users}}'
+
+  - name: Setup | authorized key upload
+    authorized_key: user={{ item.username }}
+      key="{{ lookup('file', 'pub_keys/{{ item.username }}.pub') }}"
+      path='/home/{{ item.username }}/.ssh/authorized_keys'
+      manage_dir=no
+    with_items: '{{users}}'
+
+  - name: Sudoers | update sudoers file and validate
+    lineinfile: "dest=/etc/sudoers
+      insertafter=EOF
+      line='{{ item.username }} ALL=(ALL) NOPASSWD: ALL'
+      regexp='^{{ item.username }} .*'
+      state=present"
+    when: '{{ item.use_sudo }} == True'
+    with_items: '{{users}}'
+
+  - name: "nginx installation"
+    become: yes
+    yum: name=nginx state=present
+  
+  - name: "install letencrypt certbot"
+    become: yes
+    yum: name=letsencrypt state=latest
+
+  - name: "Creating conf files for staging.moochofoods.com"
+    template:  
+      src: confs/nginx-sites1.j2
+      dest: /etc/nginx/conf.d/{{domain_name1}}.conf
+    
+  - name: "Creating conf files for staging.tofurky.com"
+    template:  
+      src: confs/nginx-sites2.j2
+      dest: /etc/nginx/conf.d/{{domain_name2}}.conf
+  
+  - name: " copying monitoringfrag conf"
+    template: 
+      src: confs/monitorfrag.j2
+      dest: /etc/nginx/conf.d/redux_monitor.frag
+
+  - name: "create letsencrypt directory"
+    file:
+      path: /etc/letsencrypt/live/staging.tofurky.com/ 
+      state: directory
+
+  - name: "copying ssl certificate"
+    template:
+      src: ssl/fullchain.pem
+      dest: /etc/letsencrypt/live/staging.tofurky.com/fullchain.pem
+ 
+  - name: "copying private key"
+    template:
+      src: ssl/privkey.pem
+      dest: /etc/letsencrypt/live/staging.tofurky.com/privkey.pem
+
+  - name: "restart nginx"     
+    become: yes
+    service:
+      name: nginx
+      state: reloaded
+
+  - name: "Install remi repo for php73"
+    yum: name=http://rpms.remirepo.net/enterprise/remi-release-7.rpm
+
+  - name: "disable remi-php5"
+    command: |
+      yum-config-manager --disable remi-php54
+
+  - name: "enable remi repo for php73"
+    command: |
+      yum-config-manager --enable remi-php73
+ 
+  - name: "php installation"
+    become: yes
+    yum: name=php73,php-fpm state=present
+
+  - name: "copy php-fpm conf"
+    template:
+     src: www.conf.j2
+     dest: /etc/php-fpm.d/www.conf
+
+  - name: "restart fpm"
+    become: yes
+    service:
+      name: php-fpm
+      state: restarted
+
+  - name: "install mysql repo"
+    yum: name=https://dev.mysql.com/get/mysql57-community-release-el7-11.noarch.rpm
+
+  - name: "updating GPG signature"
+    command: |
+      rpm --import https://repo.mysql.com/RPM-GPG-KEY-mysql-2022
+
+#  - include_vars: mysql.yml
+  - name: "Mysql - Installation"
+    become: yes
+    yum:
+      name:
+        - mysql-community-server
+        - MySQL-python
+      state: present
+    template:
+      src: confs/my.cnf.j2
+      dest: /etc/my.cnf
+ 
+  - name: Find MySQL root password
+    shell: |
+       cat /var/log/mysqld.log | sed -n 's/.*temporary password is generated for root@localhost: //p'
+    register: mysql_root_pass
+     
+  - name: copy .my.cnf file with root password credentials
+    template: 
+      src=confs/root.my.cnf.j2
+      dest=/root/.my.cnf 
+      owner=root 
+      mode=0600
+
+  - name: "Mysql - Restarting & Enabling"
+    become: yes
+    service: 
+      name: "{{ item }}"
+      state: restarted 
+    with_items:
+      - mysqld
+
+  - name: Set new password from temporary password
+    shell: 'mysql -e "SET PASSWORD = PASSWORD(''{{ mysql_root_password }}'');" --connect-expired-password -uroot -p"{{ mysql_root_pass.stdout }}"'
+
+  - name: update .my.cnf file with new root password credentials
+    template:
+      src=confs/root2.my.cnf.j2
+      dest=/root/.my.cnf
+      owner=root
+      mode=0600
+ 
+  - name: "create DB" 
+    become: yes
+    mysql_db:
+      login_user: "root"
+      name: moocho_wp,tofurky_wp_main
+      state: present
+            
+  - name: "Mysql - granting privileges for mocho_user to mocho_database"
+    become: yes
+    mysql_user:
+      login_user: "root"
+      user: "{{ moocho_user }}"
+      password: "{{ moocho_password }}"
+      state: present
+      priv: "moocho_wp.*:ALL" 
+      
+
+  - name: "Mysql - granting privileges for tofurky_user to tofurky_database"
+    become: yes
+    mysql_user:
+      login_user: "root"
+      user: "{{ tofurky_user }}"
+      password: "{{ tofurky_password }}"
+      state: present
+      priv: tofurky_wp_main.*:ALL"  
+      
+  - name: "nginx installation"
+    become: yes
+    yum: name=exim state=present
+
+  - name: "start exim"
+    become: yes
+    service:
+      name: exim
+      state: started

@@ -1,0 +1,16 @@
+---
+  vars: 
+    moocho_database: moocho_wp
+    tofurky_database: tofurky_wp_main
+    moocho_user: moocho_user
+    tofurky_user: tofurky_user
+
+  vars_prompt:
+    - name: mysql_root
+      prompt: "enter new mysql root password"
+
+    - name: moocho_password
+      prompt: " enter password for moocho_user"
+
+    - name: tofurky_password
+      prompt: "enter password for tofurky_user"

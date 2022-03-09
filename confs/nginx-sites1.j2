@@ -1,0 +1,42 @@
+server {
+     listen 80; 
+   server_name staging.moochofoods.com staging.moochofoods.com;
+   include conf.d/redux_monitor.frag;
+
+
+    access_log /var/log/nginx/staging.moochofoods.com-access.log  main;
+    error_log /var/log/nginx/staging.moochofoods.com-error.log error;
+
+#    client_max_body_size 20m;
+
+    root /home/deploy/moocho;
+
+    location / {
+        index index.php index.html index.htm;
+        try_files $uri $uri/ /index.php?$args;
+    }
+
+    # redirect server error pages to the static page /50x.html
+    #
+    error_page   500 502 503 504  /50x.html;
+    location = /50x.html {
+        root   /usr/share/nginx/html;
+    }
+
+    # pass the PHP scripts to FastCGI server listening on 127.0.0.1:9000
+    #
+    location ~ \.php$ {
+         fastcgi_pass   127.0.0.1:9000;
+         fastcgi_index  index.php;
+         fastcgi_param  SCRIPT_FILENAME  $document_root$fastcgi_script_name;
+         include        fastcgi_params;
+    }
+
+    # deny access to .htaccess files, if Apache's document root
+    # concurs with nginx's one
+    #
+    location ~ /\.ht {
+        deny  all;
+    }
+}
+
